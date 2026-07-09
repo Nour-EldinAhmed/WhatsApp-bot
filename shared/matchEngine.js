@@ -163,6 +163,13 @@ function formatTimeValue(raw) {
   return `من ${toClock(m[1])} إلى ${toClock(m[2])}`;
 }
 
+// بيدمج مصفوفة أيام في جملة عربية طبيعية: "السبت" أو "السبت والثلاثاء" أو "السبت والاحد والثلاثاء"
+function joinArabicList(items) {
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} و${items[1]}`;
+  return `${items.slice(0, -1).join('، ')} و${items[items.length - 1]}`;
+}
+
 function getLabel(header) {
   const h = normalizeArabic(header);
   const rule = LABEL_RULES.find(r => r.keys.some(k => h.includes(k)));
@@ -347,6 +354,22 @@ class MatchEngine {
 
     if (narrowed.length === 1) {
       return { text: formatRecordPro(narrowed[0]), record: narrowed[0], pending: null };
+    }
+
+    // لو الفرق الوحيد بين النتائج هو "اليوم" (كل التفاصيل التانية زي بعض)،
+    // متسألش "يوم إيه؟" وادمجهم في رد واحد طبيعي زي "بيدرّس السبت والثلاثاء"
+    const dayEntry = findEntryByHeaderMatch(narrowed[0], ['يوم']);
+    if (narrowed.length > 1 && dayEntry) {
+      const dayHeader = dayEntry[0];
+      const otherFieldsMatch = narrowed.every(r =>
+        Object.keys(r).every(h => h === dayHeader ||
+          (r[h] || '').toString().trim() === (narrowed[0][h] || '').toString().trim())
+      );
+      if (otherFieldsMatch) {
+        const days = narrowed.map(r => (findEntryByHeaderMatch(r, ['يوم']) || [])[1]).filter(Boolean);
+        const merged = { ...narrowed[0], [dayHeader]: joinArabicList(days) };
+        return { text: `تمام 👍 ${teacherName} بيدّيلكم الحصة دي أكتر من يوم:\n\n${formatRecordPro(merged)}`, record: narrowed[0], pending: null };
+      }
     }
 
     const nextField = findNextDiscriminatingField(narrowed);
