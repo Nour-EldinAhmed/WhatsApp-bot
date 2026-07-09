@@ -9,7 +9,6 @@ const MENU_OPTIONS = [
   { id: 'search_teacher', emoji: '👨‍🏫', title: 'بحث بالمدرس', hint: 'تمام 👍 اكتب اسم المدرس اللي عايز تعرف معاده.' },
   { id: 'search_subject', emoji: '📚', title: 'بحث بالمادة', hint: 'تمام 👍 اكتب اسم المادة اللي عايز تعرف مواعيدها.' },
   { id: 'search_grade', emoji: '🎓', title: 'بحث بالسنة/الصف', hint: 'تمام 👍 اكتب السنة أو الصف اللي عايز تشوف جدوله (مثال: تالتة ثانوي).' },
-  { id: 'full_schedule', emoji: '📋', title: 'عرض الجدول كامل', hint: null },
 ];
 
 function buildMenuTextForQr(businessName) {
