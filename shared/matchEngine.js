@@ -67,7 +67,7 @@ const DISCRIMINATING_FIELDS = [
   {
     headerKeywords: ['ميعاد', 'وقت', 'ساعه'],
     matches: (msg, val) => fieldTextMatches(msg, val),
-    askText: (teacherName, values) => `فيه أكتر من ميعاد متاح (${values.join(' - ')}).\nانهي ميعاد بالظبط؟`,
+    askText: (teacherName, values) => `فيه أكتر من ميعاد متاح (${values.map(formatTimeValue).join(' - ')}).\nانهي ميعاد بالظبط؟`,
   },
 ];
 
@@ -108,7 +108,8 @@ function normalizeSimple(text) {
 }
 
 function tokenize(text) {
-  return normalizeArabic(text).split(' ').filter(w => w.length >= 2 && !STOP_WORDS.has(w));
+  const withDigits = replaceOrdinalWords(normalizeArabic(text));
+  return withDigits.split(' ').filter(w => w.length >= 2 && !STOP_WORDS.has(w));
 }
 
 function levenshtein(a, b) {
@@ -152,17 +153,32 @@ function getTeacherName(record) {
   return entry ? entry[1] : '';
 }
 
+// بعض قيم "الميعاد" في الشيت مكتوبة بفاصل ":" بمعنى "من - إلى" (مثال: "9:12" يعني من 9 لـ12)
+// مش وقت ساعة:دقيقة، وده بيلخبط العميل. الدالة دي بتحول الصيغة لحاجة واضحة "من 9 إلى 12".
+function formatTimeValue(raw) {
+  const s = (raw || '').toString().trim();
+  const m = s.match(/^(\d{1,2}(?:\.\d{1,2})?)\s*:\s*(\d{1,2}(?:\.\d{1,2})?)$/);
+  if (!m) return s;
+  const toClock = (p) => p.includes('.') ? p.replace('.', ':') : p;
+  return `من ${toClock(m[1])} إلى ${toClock(m[2])}`;
+}
+
 function getLabel(header) {
   const h = normalizeArabic(header);
   const rule = LABEL_RULES.find(r => r.keys.some(k => h.includes(k)));
   return rule ? rule.label : `• ${header}`;
 }
 
-// عرض احترافي: بيخفي أي حقل فاضي أو "-"
+// عرض احترافي: بيخفي أي حقل فاضي أو "-"، وبيوضّح صيغة الميعاد، وبيخلي اسم الحقل Bold (نجمة واتساب الحقيقية)
 function formatRecordPro(record) {
   return Object.entries(record)
     .filter(([, v]) => v && v.toString().trim() !== '' && v.toString().trim() !== '-')
-    .map(([k, v]) => `${getLabel(k)}: ${v}`)
+    .map(([k, v]) => {
+      const label = getLabel(k);
+      const isTimeField = normalizeArabic(k).match(/ميعاد|وقت|ساعه/);
+      const value = isTimeField ? formatTimeValue(v) : v;
+      return `*${label}:* ${value}`;
+    })
     .join('\n');
 }
 
