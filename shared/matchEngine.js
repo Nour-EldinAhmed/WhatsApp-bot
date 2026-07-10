@@ -14,12 +14,14 @@ const STOP_WORDS = new Set([
   'بتاع', 'بتاعت', 'عايز', 'عايزة', 'محتاج', 'محتاجة', 'اعرف', 'أعرف',
 ]);
 
+const ISLAMIC_GREETINGS = ['السلام عليكم', 'سلام عليكم'];
 const GREETINGS = [
-  'السلام عليكم', 'سلام عليكم', 'اهلا', 'أهلا', 'هاي', 'هلا',
+  'اهلا', 'أهلا', 'هاي', 'هلا',
   'ازيك', 'إزيك', 'صباح الخير', 'مساء الخير', 'مرحبا',
 ];
 const THANKS_WORDS = ['شكرا', 'متشكر', 'تسلم', 'يعطيك العافيه', 'مشكور', 'الله يخليك', 'ربنا يخليك'];
 const FAREWELL_WORDS = ['مع السلامه', 'باي', 'تصبح على خير', 'وداعا'];
+const IDENTITY_WORDS = ['انت مين', 'مين انت', 'انت بشر', 'انت روبوت', 'انت انسان', 'مين بيرد'];
 const FULL_LIST_TRIGGERS = ['الجدول كله', 'كل المواعيد', 'كل الجدول', 'عرض الجدول', 'شوف الجدول'];
 
 const FOLLOW_UP_FIELDS = [
@@ -52,25 +54,22 @@ const LABEL_RULES = [
   { keys: ['قاعه', 'مكان', 'فرع'], label: '🏫 القاعة' },
 ];
 
-// ترتيب أولوية الأسئلة التوضيحية اللي بيسألها البوت لما يكون فيه أكتر من نتيجة
+// ترتيب أولوية الأسئلة التوضيحية اللي بيسألها البوت لما يكون فيه أكتر من نتيجة.
+// الصف بس هو اللي بنسأل عنه فعليًا (لأن اختياره غلط = معلومة غلط تمامًا).
+// اليوم والميعاد بقوا بيتجمعوا/يتعرضوا تلقائيًا (شوف groupRecordsByDay + resolveCandidates)
+// من غير أسئلة زيادة، لأن أكتر من يوم/ميعاد مش "اختيار محتاج توضيح" - كلهم معلومة صحيحة.
 const DISCRIMINATING_FIELDS = [
   {
     headerKeywords: GRADE_HEADER_KEYWORDS,
     matches: (msg, val) => gradeMatches(msg, val),
     askText: (teacherName, values) => `تمام 👍 ${teacherName} بيدرّس أكتر من صف (${values.join(' - ')}).\nانت في صف/سنة كام عشان أبعتلك المعاد الصحيح؟`,
   },
-  {
-    headerKeywords: ['يوم'],
-    matches: (msg, val) => fieldTextMatches(msg, val),
-    askText: (teacherName, values) => `تمام في أكتر من يوم بنفس المواصفات دي (${values.join(' - ')}).\nيوم إيه بالظبط؟`,
-  },
-  {
-    headerKeywords: ['ميعاد', 'وقت', 'ساعه'],
-    matches: (msg, val) => fieldTextMatches(msg, val),
-    askText: (teacherName, values) => `فيه أكتر من ميعاد متاح (${values.map(formatTimeValue).join(' - ')}).\nانهي ميعاد بالظبط؟`,
-  },
 ];
 
+const ISLAMIC_GREETING_REPLIES = [
+  (biz) => `وعليكم السلام ورحمة الله وبركاته 😊 أهلًا بيك في ${biz}!`,
+  (biz) => `وعليكم السلام ورحمة الله وبركاته 🌸 يا هلا بيك في ${biz}.`,
+];
 const GREETING_REPLIES = [
   (biz) => `أهلًا بيك في ${biz} 👋`,
   (biz) => `أهلين! 😊 معاك ${biz}، تحت أمرك.`,
@@ -79,6 +78,10 @@ const GREETING_REPLIES = [
 const MULTI_MATCH_INTROS = ['لقيت أكتر من نتيجة قريبة من سؤالك:', 'عندي أكتر من خيار ممكن يكون ده اللي محتاجه:'];
 const THANKS_REPLIES = ['العفو! 🙏 تحت أمرك في أي وقت.', 'ولا يهمك، أنا موجود لو محتاج أي حاجة تانية 😊', 'الله يخليك، اتفضل لو عندك سؤال تاني.'];
 const FAREWELL_REPLIES = ['مع السلامة 👋 ولو احتجت حاجة أنا موجود.', 'تصبح على خير 🌙 اتفضل تكلمني في أي وقت.'];
+const IDENTITY_REPLIES = [
+  (biz) => `أنا مساعد ${biz} 🎓 موجود عشان أساعدك تعرف مواعيد المدرسين والحصص بسرعة، تحب تسأل عن إيه؟`,
+  (biz) => `معاك المساعد الخاص بـ ${biz} 😊 هنا عشان أوفرلك وقت البحث عن المواعيد، اسأل براحتك.`,
+];
 const FALLBACK_REPLIES = [
   (name, phone) => `معلش، مقدرتش ألاقي إجابة دقيقة لسؤالك 🙏\nتقدر تتواصل مباشرة مع ${name} على الرقم ${phone} وهيساعدك حالًا.`,
   (name, phone) => `آسف، مش متأكد من الإجابة دي عشان متضمنش تجيبلك معلومة غلط 🙏\nكلم ${name} على ${phone} وهيفيدك أحسن.`,
@@ -168,6 +171,55 @@ function joinArabicList(items) {
   if (items.length === 1) return items[0];
   if (items.length === 2) return `${items[0]} و${items[1]}`;
   return `${items.slice(0, -1).join('، ')} و${items[items.length - 1]}`;
+}
+
+// بتجمع نتايج متطابقة في كل حاجة ما عدا "اليوم" في نتيجة واحدة بأيام مدمجة.
+// مثال: (سبت، 9-11) + (ثلاثاء، 9-11) => نتيجة واحدة "السبت والثلاثاء" بدل اتنين منفصلين.
+// لو مفيش عمود "يوم" أصلاً، أو مفيش تكرار حقيقي، بترجع النتايج زي ما هي من غير تغيير.
+function groupRecordsByDay(records) {
+  if (!records.length) return records;
+  const dayEntry = findEntryByHeaderMatch(records[0], ['يوم']);
+  if (!dayEntry) return records;
+  const dayHeader = dayEntry[0];
+
+  const groups = [];
+  records.forEach(r => {
+    const signature = Object.keys(r)
+      .filter(h => h !== dayHeader)
+      .map(h => (r[h] || '').toString().trim())
+      .join('|');
+    let group = groups.find(g => g.signature === signature);
+    if (!group) {
+      group = { signature, days: [], base: r };
+      groups.push(group);
+    }
+    const dayVal = (r[dayHeader] || '').toString().trim();
+    if (dayVal && !group.days.includes(dayVal)) group.days.push(dayVal);
+  });
+
+  return groups.map(g => ({ ...g.base, [dayHeader]: joinArabicList(g.days) }));
+}
+
+const ALL_TRIGGERS_REGEX = /كل|كله|كلهم|اثنين|يومين|الاتنين|كلهم يعني/;
+const DAY_ORDER = ['السبت', 'الاحد', 'الأحد', 'الاتنين', 'الإثنين', 'الثلاثاء', 'الاربعاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+
+// بيعرض مجموعة سجلات مقسّمة على أيام، كل يوم لوحده، عشان جدول صف كامل يبان مرتب واحترافي
+function groupAndListByDay(records) {
+  const dayEntry = findEntryByHeaderMatch(records[0], ['يوم']);
+  if (!dayEntry) return listRecords(records);
+  const dayHeader = dayEntry[0];
+
+  const sorted = [...records].sort((a, b) => DAY_ORDER.indexOf(a[dayHeader]) - DAY_ORDER.indexOf(b[dayHeader]));
+  const groups = [];
+  for (const r of sorted) {
+    const day = r[dayHeader] || 'غير محدد';
+    let group = groups.find(g => g.day === day);
+    if (!group) { group = { day, items: [] }; groups.push(group); }
+    group.items.push(r);
+  }
+  return groups
+    .map(g => `📅 *${g.day}*\n${g.items.map(r => formatRecordPro(r)).join('\n\n')}`)
+    .join('\n\n──────\n\n');
 }
 
 function getLabel(header) {
@@ -300,7 +352,8 @@ function narrowCandidatesByMessage(userMessage, candidates) {
 }
 
 function listRecords(records) {
-  return records.map((r, i) => `${i + 1})\n${formatRecordPro(r)}`).join('\n\n');
+  const grouped = groupRecordsByDay(records);
+  return grouped.map((r, i) => `${i + 1})\n${formatRecordPro(r)}`).join('\n\n');
 }
 
 class MatchEngine {
@@ -356,32 +409,32 @@ class MatchEngine {
       return { text: formatRecordPro(narrowed[0]), record: narrowed[0], pending: null };
     }
 
-    // لو الفرق الوحيد بين النتائج هو "اليوم" (كل التفاصيل التانية زي بعض)،
-    // متسألش "يوم إيه؟" وادمجهم في رد واحد طبيعي زي "بيدرّس السبت والثلاثاء"
-    const dayEntry = findEntryByHeaderMatch(narrowed[0], ['يوم']);
-    if (narrowed.length > 1 && dayEntry) {
-      const dayHeader = dayEntry[0];
-      const otherFieldsMatch = narrowed.every(r =>
-        Object.keys(r).every(h => h === dayHeader ||
-          (r[h] || '').toString().trim() === (narrowed[0][h] || '').toString().trim())
-      );
-      if (otherFieldsMatch) {
-        const days = narrowed.map(r => (findEntryByHeaderMatch(r, ['يوم']) || [])[1]).filter(Boolean);
-        const merged = { ...narrowed[0], [dayHeader]: joinArabicList(days) };
-        return { text: `تمام 👍 ${teacherName} بيدّيلكم الحصة دي أكتر من يوم:\n\n${formatRecordPro(merged)}`, record: narrowed[0], pending: null };
-      }
+    // بدل ما نسأل "يوم إيه؟"، بندمج النتايج المتطابقة في كل حاجة ما عدا اليوم (مهما كان عددها)
+    const grouped = groupRecordsByDay(narrowed);
+
+    if (grouped.length === 1) {
+      return {
+        text: `تمام 👍 ${teacherName} بيدّيلكم الحصة دي أكتر من يوم:\n\n${formatRecordPro(grouped[0])}`,
+        record: narrowed[0],
+        pending: null,
+      };
     }
 
-    const nextField = findNextDiscriminatingField(narrowed);
+    // لو العميل من نفس الرسالة قال "كلها/الكل" (زي "مواعيد مستر أحمد 3ث كلها")، متسألش تاني واعرض كل حاجة على طول
+    if (grouped.length > 1 && ALL_TRIGGERS_REGEX.test(normalizeArabic(userMessage))) {
+      return { text: `تمام 👍 ${teacherName} بيدّيلكم أكتر من حصة:\n\n${listRecords(grouped)}`, record: null, pending: null };
+    }
+
+    const nextField = findNextDiscriminatingField(grouped);
     if (nextField) {
       return { text: nextField.askText(teacherName, nextField.distinctValues), record: null, pending: narrowed };
     }
 
-    // مفيش حقل تاني نقدر نميز بيه - اعرض كل الخيارات المتبقية
+    // الصف اتأكد وواضح - المتبقي مجرد أكتر من حصة/ميعاد لنفس المدرس، مش اختيار غامض محتاج سؤال
     return {
-      text: `${pickRandom(MULTI_MATCH_INTROS)}\n\n${listRecords(narrowed)}\n\nلو تقصد واحد منهم قوللي أكتر تفاصيل عشان أأكدلك.`,
+      text: `تمام 👍 ${teacherName} بيدّيلكم أكتر من حصة:\n\n${listRecords(grouped)}`,
       record: null,
-      pending: narrowed,
+      pending: null,
     };
   }
 
@@ -396,9 +449,16 @@ class MatchEngine {
     const { lastRecord = null, pendingCandidates = null } = context;
     const normalized = normalizeArabic(userMessage);
 
+    if (containsAny(normalized, ISLAMIC_GREETINGS)) {
+      const greeting = pickRandom(ISLAMIC_GREETING_REPLIES)(this.businessName);
+      return { text: `${greeting}\n\n${buildMenuTextForQr(this.businessName)}`, record: null, pending: null, showMenu: true };
+    }
     if (containsAny(normalized, GREETINGS)) {
       const greeting = pickRandom(GREETING_REPLIES)(this.businessName);
       return { text: `${greeting}\n\n${buildMenuTextForQr(this.businessName)}`, record: null, pending: null, showMenu: true };
+    }
+    if (containsAny(normalized, IDENTITY_WORDS)) {
+      return { text: pickRandom(IDENTITY_REPLIES)(this.businessName), record: null, pending: null };
     }
     if (containsAny(normalized, THANKS_WORDS)) {
       return { text: pickRandom(THANKS_REPLIES), record: null, pending: null };
@@ -428,7 +488,7 @@ class MatchEngine {
       }
 
       // العميل عايز يشوف كل الخيارات المعلّقة مرة واحدة (زي "هات الاتنين" أو "كل الخيارات")
-      if (/كل|كله|كلهم|اثنين|يومين|الاتنين|كلهم يعني/.test(normalized)) {
+      if (ALL_TRIGGERS_REGEX.test(normalized)) {
         return { text: listRecords(pendingCandidates), record: null, pending: null };
       }
 
@@ -456,7 +516,8 @@ class MatchEngine {
       const scored = this.scoreRecords(records, tokens).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
       if (scored.length) {
         const topScore = scored[0].score;
-        const topMatches = scored.filter(s => s.score >= topScore * 0.8).slice(0, 8).map(s => s.record);
+        const allTopMatches = scored.filter(s => s.score >= topScore * 0.8).map(s => s.record);
+        const topMatches = allTopMatches.slice(0, 8);
 
         if (topMatches.length === 1) {
           return { text: formatRecordPro(topMatches[0]), record: topMatches[0], pending: null };
@@ -465,6 +526,18 @@ class MatchEngine {
         const sameTeacher = topMatches.every(r => getTeacherName(r) === getTeacherName(topMatches[0]));
         if (sameTeacher) {
           return this.resolveCandidates(userMessage, topMatches);
+        }
+
+        // بحث بالصف/السنة بحته (كل النتايج نفس الصف بس مدرسين ومواد مختلفة) - ده مش "اختار واحد"،
+        // العميل عايز يشوف جدول الصف ده كله، فمنعرضهوش منقوص أو نطلب توضيح، نعرضه كامل مقسم على أيام
+        const gradeEntry = findEntryByHeaderMatch(allTopMatches[0], ['صف']);
+        const sameGrade = gradeEntry && allTopMatches.every(r => (r[gradeEntry[0]] || '').trim() === (allTopMatches[0][gradeEntry[0]] || '').trim());
+        if (sameGrade) {
+          return {
+            text: `تمام 👍 ده جدول *${allTopMatches[0][gradeEntry[0]]}* بالكامل (${allTopMatches.length} حصة):\n\n${groupAndListByDay(allTopMatches)}`,
+            record: null,
+            pending: null,
+          };
         }
 
         // نتايج لمدرسين مختلفين (تشابه أسماء) - اعرضهم كلهم واطلب توضيح
